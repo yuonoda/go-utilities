@@ -31,47 +31,34 @@ func OpenDBConnection() (*gorm.DB, error) {
 		host, user, password, dbname, port)
 	return gorm.Open(postgres.Open(dsn), &gorm.Config{})
 }
+
 func usersHandler(w http.ResponseWriter, r *http.Request) {
+	db, err := OpenDBConnection()
+	db.AutoMigrate(&User{})
+	if err != nil {
+		log.Println(fmt.Errorf("DB接続に失敗しました。%s", err))
+	}
+	w.Header().Set("Content-Type", "application/json")
+
 	if r.Method == "GET" {
-		GETHandler(w, r)
+		var users []User
+		db.Find(&users)
+		log.Printf("%+v", users)
+		usersBytes, _ := json.MarshalIndent(users, "", "\t")
+		w.Write(usersBytes)
+
 	} else if r.Method == "POST" {
-		POSTHandler(w, r)
+		var u User
+		err := json.NewDecoder(r.Body).Decode(&u)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		db.Create(&u)
+
 	} else {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
-}
-
-func POSTHandler(w http.ResponseWriter, r *http.Request) {
-	var u User
-	err := json.NewDecoder(r.Body).Decode(&u)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	db, err := OpenDBConnection()
-	db.AutoMigrate(&User{})
-	if err != nil {
-		log.Println(fmt.Errorf("DB接続に失敗しました。%s", err))
-	}
-	db.Create(&u)
-
-}
-
-func GETHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("r:%+v\n", r)
-	db, err := OpenDBConnection()
-	db.AutoMigrate(&User{})
-	if err != nil {
-		log.Println(fmt.Errorf("DB接続に失敗しました。%s", err))
-	}
-	var users []User
-	db.Find(&users)
-	log.Printf("%+v", users)
-
-	usersBytes, _ := json.MarshalIndent(users, "", "\t")
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(usersBytes)
 }
 
 func main() {
