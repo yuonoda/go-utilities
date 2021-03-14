@@ -1,119 +1,80 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	_ "github.com/lib/pq"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"log"
+	"net/http"
 )
 
-type Product struct {
-	gorm.Model
-	Code  string
-	Price uint
+type User struct {
+	UserId             int `gorm:"primaryKey"`
+	UserFirstNameKanji string
+	UserLastNameKanji  string
+}
+
+const (
+	host     = "localhost"
+	port     = 5433
+	user     = "admin"
+	password = "admin"
+	dbname   = "postgres"
+)
+
+// TODO DBマイグレーションをバッチにする
+
+func OpenDBConnection() (*gorm.DB, error) {
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%d sslmode=disable TimeZone=Asia/Tokyo",
+		host, user, password, dbname, port)
+	return gorm.Open(postgres.Open(dsn), &gorm.Config{})
+}
+func usersHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		GETHandler(w, r)
+	} else if r.Method == "POST" {
+		POSTHandler(w, r)
+	} else {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
+func POSTHandler(w http.ResponseWriter, r *http.Request) {
+	var u User
+	err := json.NewDecoder(r.Body).Decode(&u)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	db, err := OpenDBConnection()
+	db.AutoMigrate(&User{})
+	if err != nil {
+		log.Println(fmt.Errorf("DB接続に失敗しました。%s", err))
+	}
+	db.Create(&u)
+
+}
+
+func GETHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("r:%+v\n", r)
+	db, err := OpenDBConnection()
+	db.AutoMigrate(&User{})
+	if err != nil {
+		log.Println(fmt.Errorf("DB接続に失敗しました。%s", err))
+	}
+	var users []User
+	db.Find(&users)
+	log.Printf("%+v", users)
+
+	usersBytes, _ := json.MarshalIndent(users, "", "\t")
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(usersBytes)
 }
 
 func main() {
-	db, err := gorm.Open(sqlite.Open("test.db"), &gorm.Config{})
-	if err != nil {
-		panic("failed to connect database")
-	}
-
-	db.AutoMigrate(&Product{})
-
-	db.Create(&Product{Code: "D42", Price: 100})
-
-	var product Product
-	db.First(&product, 1)
-	db.First(&product, "code = ?", "D42")
-
+	http.HandleFunc("/users", usersHandler)
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
-
-//type Person struct {
-//	Name     string `json:"name"`
-//	Nickname string `json:"nickname"`
-//}
-//
-//const (
-//	host     = "localhost"
-//	port     = 5433
-//	user     = "admin"
-//	password = "admin"
-//	dbname   = "postgres"
-//)
-//
-//func OpenConnection() *sql.DB {
-//	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
-//		"password=%s dbname=%s sslmode=disable",
-//		host, port, user, password, dbname)
-//
-//	db, err := sql.Open("postgres", psqlInfo)
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	err = db.Ping()
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	return db
-//}
-//
-//func GETHandler(w http.ResponseWriter, r *http.Request) {
-//	b, err := json.Marshal(r)
-//	if err != nil {
-//		http.Error(w, "処理に失敗しました", http.StatusInternalServerError)
-//	}
-//
-//	log.Println("b:", b)
-//	log.Println("GETHandler")
-//	db := OpenConnection()
-//
-//	rows, err := db.Query("SELECT * FROM person")
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//
-//	var people []Person
-//
-//	for rows.Next() {
-//		var person Person
-//		rows.Scan(&person.Name, &person.Nickname)
-//		people = append(people, person)
-//	}
-//
-//	peopleBytes, _ := json.MarshalIndent(people, "", "\t")
-//
-//	w.Header().Set("Content-Type", "application/json")
-//	w.Write(peopleBytes)
-//
-//	defer rows.Close()
-//	defer db.Close()
-//}
-//
-//func POSTHandler(w http.ResponseWriter, r *http.Request) {
-//	db := OpenConnection()
-//
-//	var p Person
-//	err := json.NewDecoder(r.Body).Decode(&p)
-//	if err != nil {
-//		http.Error(w, err.Error(), http.StatusBadRequest)
-//		return
-//	}
-//
-//	sqlStatement := `INSERT INTO person (name, nickname) VALUES ($1, $2)`
-//	_, err = db.Exec(sqlStatement, p.Name, p.Nickname)
-//	if err != nil {
-//		w.WriteHeader(http.StatusBadRequest)
-//		panic(err)
-//	}
-//
-//	w.WriteHeader(http.StatusOK)
-//	defer db.Close()
-//}
-//
-//func main() {
-//	http.HandleFunc("/", GETHandler)
-//	http.HandleFunc("/insert", POSTHandler)
-//	log.Fatal(http.ListenAndServe(":8080", nil))
-//}
